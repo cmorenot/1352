@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es" manifest="cache.appcache">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CEMT</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { min-height:100%; }
+  body { margin:0; padding:0; overflow:hidden; position:relative;
+     background:linear-gradient(135deg,#063fab 0%,#01258a 58%,#001b70 100%);
+     color:#fff; font:18px/1.45 "Segoe UI",system-ui,sans-serif; }
+  body::before { content:""; position:fixed; inset:0; pointer-events:none;
+         background:radial-gradient(circle at 50% 34%,rgba(255,255,255,.16),transparent 32%),
+                linear-gradient(120deg,transparent 0 48%,rgba(255,255,255,.035) 48% 49%,transparent 49%); }
+  #wrap { position:relative; z-index:1; display:flex; min-height:100vh;
+      box-sizing:border-box; padding:24px 20px; flex-direction:column;
+      justify-content:center; align-items:center; text-align:center; }
+  #state { font-size:clamp(28px,5vw,42px); font-weight:700; margin:0 0 10px;
+       text-shadow:0 2px 8px rgba(0,0,0,.25); }
+  #det { font-size:20px; color:rgba(255,255,255,.82); margin:0 0 8px; }
+  #det b { color:#fff; font-weight:700; }
+  #cache { font-size:24px; line-height:1.35; font-weight:700; color:rgba(255,255,255,.88);
+      margin:0; min-height:1.35em; max-width:100%; overflow-wrap:anywhere; }
+  #cache.cacheok { color:#b9ffd0; }
+  .ok { color:#b9ffd0; } .bad { color:#ffd0d0; } .warn { color:#fff0ad; }
+  #brand { text-align:center; padding:14px 10px; background:rgba(0,20,104,.2);
+       border-bottom:1px solid rgba(255,255,255,.16); }
+    #brand img { width:auto; height:28px; margin-right:8px;
+               vertical-align:middle; }
+    #brand b { font-size:15px; font-weight:700; letter-spacing:.14em;
+                         color:#fff; vertical-align:middle; }
+</style>
+</head>
+<body>
+<div id="brand"><img src="cemt.png" alt="" height="28"><b>RAW GAME</b></div>
+<div id="wrap">
+    <div id="state">Detectando firmware...</div>
+  <div id="det"></div>
+  <div id="cache"></div>
+<script>document.querySelector("#brand img").src = "cemt.png";</script>
+</div>
+
+<script>
+(function () {
+    history.replaceState(null, null, "cache.html");
+    var stateEl = document.getElementById("state");
+    var detEl = document.getElementById("det");
+    var cacheEl = document.getElementById("cache");
+    function setState(t, c) { stateEl.textContent = t; stateEl.className = c || ""; }
+    function setCache(t, ok) { cacheEl.textContent = t; cacheEl.className = ok ? "cacheok" : ""; }
+    var params = new URLSearchParams(location.search);
+
+    // Firmwares this build has a MEASURED kernel table for. jb.js still runs its
+    // own kernel-table-present gate, so this is UX only -- an unlisted firmware
+    // can still be launched with a tap. KEEP IN SYNC with ps4_offsets.js: add a
+    // fwnum here in the SAME commit that fills that firmware's kernel RVAs.
+    // The PS4 reports its minor as two hex digits in the UA (13.52 -> minor 0x52).
+    var SUPPORTED = { 1302: 1, 1304: 1, 1350: 1, 1352: 1 }; // all measured on hardware
+
+    var key = null, fwnum = null;
+    var m = /PlayStation\s+4[\/ ](\d+)\.(\d+)/.exec(navigator.userAgent);
+    if (m) {
+        var ms = parseInt(m[2], 16).toString(16);
+        if (ms.length < 2) ms = "0" + ms;
+        key = m[1] + "." + ms;
+        fwnum = parseInt(m[1], 10) * 100 + parseInt(ms, 10);
+    }
+
+    var forced = params.get("force") === "1";
+    var supported = forced || (fwnum !== null && SUPPORTED[fwnum] === 1);
+    detEl.innerHTML = "Firmware <b>" + (key || "desconocido") + "</b>"
+        + (supported ? " &middot; <b>compatible</b>"
+                     : " &middot; no incluido en la tabla del sistema");
+
+    var target = "index.html" + location.search;
+    function go() { setState("Cargando jailbreak...", "warn"); location.replace(target); }
+
+    var ac = window.applicationCache;
+    function finishCache(message) {
+        setCache(message, true);
+        setTimeout(go, 500);
+    }
+
+    if (!ac || !document.documentElement.hasAttribute("manifest")) {
+        go();
+        return;
+    }
+
+    if (ac.status === ac.IDLE) {
+        finishCache("Caché lista");
+        return;
+    }
+
+    ac.addEventListener("downloading", function () {
+        setCache("Instalando caché...");
+    }, false);
+    ac.addEventListener("progress", function (e) {
+        if (e && e.total) {
+            setCache("Instalando caché... " + Math.round((e.loaded / e.total) * 100) + "%");
+        }
+    }, false);
+    ac.addEventListener("cached", function () {
+        finishCache("Caché instalada correctamente");
+    }, false);
+    ac.addEventListener("updateready", function () {
+        try { ac.swapCache(); } catch (e) {}
+        finishCache("Caché actualizada correctamente");
+    }, false);
+    ac.addEventListener("noupdate", function () {
+        finishCache("Caché lista");
+    }, false);
+    ac.addEventListener("error", function () {
+        setCache("Error al instalar la caché");
+    }, false);
+    return;
+
+    function waitForTap(msg, action) {
+        setState(msg, "warn");
+        function fire() {
+            window.removeEventListener("click", fire);
+            window.removeEventListener("keydown", fire);
+            action();
+        }
+        window.addEventListener("click", fire);
+        window.addEventListener("keydown", fire);
+    }
+
+    // Off-target consoles are not launched automatically -- one tap still runs
+    // it, so a user-agent quirk on the real 13.52 console can never lock it out.
+    if (!supported) {
+        setState("FIRMWARE NO COMPATIBLE", "bad");
+        waitForTap("NO COMPATIBLE (" + (key || "desconocido") + ") -- pulsa X o toca para continuar", go);
+        return;
+    }
+
+    var ac = window.applicationCache;
+    if (!ac || !document.documentElement.hasAttribute("manifest")) {
+        go();
+    } else if (!navigator.onLine) {
+        setCache("Sin conexión: usando la caché", true);
+        go();
+    } else if (ac.status === ac.IDLE) {
+        setCache("Caché lista", true);
+        go();
+    } else if (ac.status === ac.UPDATEREADY) {
+        try { ac.swapCache(); } catch (e) {}
+        setCache("Actualización descargada", true);
+        waitForTap("ACTUALIZACIÓN LISTA -- pulsa X o toca para recargar y continuar",
+                   function () { location.reload(); });
+    } else {
+        setCache("Comprobando la caché...");
+        ac.addEventListener("downloading",
+            function () { setCache("Guardando caché para usar sin conexión..."); }, false);
+        ac.addEventListener("progress", function (e) {
+            if (e && e.total)
+                setCache("Guardando caché... " + Math.round((e.loaded / e.total) * 100) + "%");
+        }, false);
+        ac.addEventListener("cached", function () {
+            setCache("Caché guardada para usar sin conexión", true);
+            waitForTap("CACHÉ LISTA -- pulsa X o toca para continuar", go);
+        }, false);
+        ac.addEventListener("updateready", function () {
+            try { ac.swapCache(); } catch (e) {}
+            setCache("Actualización descargada", true);
+            waitForTap("ACTUALIZACIÓN LISTA -- pulsa X o toca para recargar y continuar",
+                       function () { location.reload(); });
+        }, false);
+        ac.addEventListener("noupdate", function () {
+            setCache("Caché lista para usar sin conexión", true);
+            go();
+        }, false);
+        ac.addEventListener("error", function () {
+            setCache("Caché no disponible");
+            waitForTap("ERROR DE CACHÉ -- pulsa X o toca para continuar", go);
+        }, false);
+        ac.addEventListener("obsolete", function () {
+            setCache("Caché obsoleta");
+            waitForTap("CACHÉ OBSOLETA -- pulsa X o toca para continuar", go);
+        }, false);
+    }
+})();
+</script>
+</body>
+</html>

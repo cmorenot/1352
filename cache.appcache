@@ -1,0 +1,19 @@
+CACHE MANIFEST
+# rev 20260925-spanish-messages
+
+cache.html
+index.html
+cemt.png
+bundle.js
+rpc_worker.js
+goldhen.bin
+patches/1302.bin
+patches/1350.bin
+patches/1352.bin
+
+NETWORK:
+*
+
+FALLBACK:
+index.html index.html
+cache.html cache.html
